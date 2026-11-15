@@ -1,44 +1,85 @@
-# Moon Studio Cloud Windows — Docker image
-# Full-stack Node.js/Express + React/Vite + QEMU runtime
+
+# Moon Studio Cloud Windows
+# Full-stack React + Express + QEMU + XRDP
 
 FROM node:22-bookworm
 
 ENV NODE_ENV=production \
     PORT=3000 \
-    DEBIAN_FRONTEND=noninteractive
+    DEBIAN_FRONTEND=noninteractive \
+    HOME=/root
 
 WORKDIR /app
 
-# Runtime tools used by the VM / infrastructure modules.
-# QEMU TCG works without /dev/kvm, but is much slower than KVM.
+# System dependencies and desktop environment
 RUN apt-get update && apt-get install -y --no-install-recommends \
     qemu-system-x86 \
     qemu-utils \
     seabios \
     nasm \
     genisoimage \
+    xrdp \
+    xorgxrdp \
+    xfce4-session \
+    xfwm4 \
+    xfce4-panel \
+    xfdesktop4 \
+    thunar \
+    chromium \
+    falkon \
+    dbus \
+    dbus-x11 \
+    ssl-cert \
+    xfce4-terminal \
+    desktop-base \
     iproute2 \
     iptables \
     curl \
+    wget \
     procps \
-    imagemagick \
+    sudo \
     ca-certificates \
+    imagemagick \
     && rm -rf /var/lib/apt/lists/*
 
-# Install all package dependencies: tsx is required by the production start script.
+# Install bore tunnel binary
+RUN ARCH="$(dpkg --print-architecture)" && \
+    if [ "$ARCH" = "amd64" ]; then \
+      curl -fsSL https://github.com/ekzhang/bore/releases/download/v0.5.2/bore-v0.5.2-x86_64-unknown-linux-musl.tar.gz \
+      -o /tmp/bore.tar.gz && \
+      tar -xzf /tmp/bore.tar.gz -C /usr/local/bin && \
+      chmod +x /usr/local/bin/bore && \
+      rm /tmp/bore.tar.gz; \
+    fi
+
+# Install Node dependencies
 COPY package.json ./
 RUN npm install --no-audit --no-fund
 
-# Copy application source and build the React/Vite frontend.
+# Copy source code
 COPY . .
-RUN npm run build \
-    && mkdir -p /app/data/iso /app/data/disks /app/data/logs \
-    && chown -R node:node /app
 
-# Keep app files writable for registry, VM disks, ISO images and generated secrets.
-USER node
+# Build frontend
+RUN npm run build
+
+# Prepare runtime directories
+RUN mkdir -p \
+    /app/data/iso \
+    /app/data/disks \
+    /app/data/logs \
+    /run/dbus \
+    /run/xrdp \
+    /var/run/xrdp \
+    /home/Administrator \
+    /var/lib/apt/lists/partial \
+    && chmod 755 /run/dbus /run/xrdp /var/run/xrdp \
+    && chmod 755 /home/Administrator \
+    && chown -R root:root /app
+
+# Root is required by the current runtime implementation
+# for apt, user management, XRDP and QEMU operations.
+USER root
 
 EXPOSE 3000
 
-# Express listens on 0.0.0.0 and reads the platform-provided PORT.
 CMD ["npm", "run", "start"]
